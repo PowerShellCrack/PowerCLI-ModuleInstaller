@@ -1,4 +1,26 @@
-﻿##*===========================================================================
+﻿<#
+.SYNOPSIS
+    Install PowerCLI Offline
+.DESCRIPTION
+    Install the nuget package manamgment prereq then installs PowerCLI module
+.PARAMETER 
+    NONE
+.EXAMPLE
+    powershell.exe -ExecutionPolicy Bypass -file "Install-PowerCLI.ps1"
+.NOTES
+    Script name: Install-PowerCLI.ps1
+    Version:     2.0
+    Author:      Richard Tracy
+    DateCreated: 2018-04-02
+    LastUpdate:  2019-02-08
+
+.LINK
+    https://code.vmware.com/web/dp/tool/vmware-powercli/11.1.0
+    http://www.powershellcrack.com/2017/09/installing-powercli-on-disconnected.html
+#>
+
+
+##*===========================================================================
 ##* FUNCTIONS
 ##*===========================================================================
 Function Write-LogEntry {
@@ -131,11 +153,14 @@ If($NuGetAssemblySourcePath){
 
 #Find PowerCLI Module
 $ModuleFolder = $("VMware.PowerCLI")
-# Get Modules in modules folder and whats installed
 
+
+# Get Modules in modules folder and whats installed
 $ModuleSetSourcePath = Get-ChildItem -Path $ModulesPath -Depth 0 | Where-Object { $_.PSIsContainer} | Where-Object { $_ -like "$ModuleFolder*"}
 $ModuleVersion = $ModuleSetSourcePath.BaseName.split("-")[1]
-    
+
+
+
 $UserModuleDestPath = "$UserModulePath\$ModuleFolder"
 $DefaultUserModuleDestPath = "$DefaultUserModulePath\$ModuleFolder"
 $AllUsersModuleDestPath = "$AllUsersModulePath\$ModuleFolder"
