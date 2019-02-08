@@ -1,5 +1,5 @@
 <h1>PowerCLI Installer</h1>
-Installing PowerCLI 6.5.2<br /><br />
+Installing PowerCLI<br /><br />
 
 
 <b>FILE:</b> Install-PowerCLI.ps1<br />
