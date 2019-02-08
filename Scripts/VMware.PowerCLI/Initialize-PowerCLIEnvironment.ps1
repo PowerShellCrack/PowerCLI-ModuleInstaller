@@ -1,32 +1,22 @@
-#######################################################################################################################
+﻿#######################################################################################################################
 # This file will be removed when PowerCLI is uninstalled. To make your own scripts run when PowerCLI starts, create a
 # file named "Initialize-PowerCLIEnvironment_Custom.ps1" in the same directory as this file, and place your scripts in
 # it. The "Initialize-PowerCLIEnvironment_Custom.ps1" is not automatically deleted when PowerCLI is uninstalled.
 #######################################################################################################################
 param([bool]$promptForCEIP = $false)
 
-
-Function Parse-Psd1{
-    [CmdletBinding()]
-    Param (
-        [Parameter(Mandatory=$false)]
-        [Microsoft.PowerShell.DesiredStateConfiguration.ArgumentToConfigurationDataTransformationAttribute()]
-        [hashtable] $data
-    ) 
-    return $data
-}
-
+##*===============================================
+##* VARIABLE DECLARATION
+##*===============================================
 ## Variables: Script Name and Script Paths
 [string]$scriptPath = $MyInvocation.MyCommand.Definition
 [string]$scriptRoot = Split-Path -Path $scriptPath -Parent
 $UserPCLIModule = $env:PSModulePath -split ';' | Where {$_ -like "$home*"}
+$AllUsersModulePath = $env:PSModulePath -split ';' | Where {$_ -like "$env:ProgramFiles\WindowsPowerShell*"}
 
 # List of modules to be loaded
-$LocalModule = Get-ChildItem $UserPCLIModule -Recurse -Filter VMware.PowerCLI -Directory
-$MainModulePSD1 = (Get-ChildItem $LocalModule.FullName -Recurse -Filter *.psd1).FullName
-$ParsedPSD1 = Parse-Psd1 $MainModulePSD1
-$PowerCLIVersion = $ParsedPSD1.ModuleVersion
-$moduleList = $ParsedPSD1.RequiredModules
+$LocalModule = Get-ChildItem $AllUsersModulePath -Recurse -Filter VMware.PowerCLI -Directory
+$moduleList = (Get-ChildItem $LocalModule.FullName -Recurse -Filter *.psd1).FullName
 
 $productName = "PowerCLI"
 $productShortName = "PowerCLI"
@@ -51,14 +41,11 @@ function ReportFinishedActivity() {
 }
 
 # Load modules
-function Load-DependencyModules(){
-    ReportStartOfActivity "Searching for $productShortName module components..."
-
+function LoadModules(){
+   ReportStartOfActivity "Searching for $productShortName module components..."
    
-
-   $loaded = Get-Module -Name $moduleList.ModuleName -ErrorAction Ignore | % {$_.Name}
-   $registered = Get-Module -Name $moduleList.ModuleName -ListAvailable -ErrorAction Ignore | % {$_.Name}
-   $notLoaded = $null
+   $loaded = Get-Module -ErrorAction Ignore | % {$_.Name}
+   $registered = Get-Module -Name $moduleList -ListAvailable -ErrorAction Ignore | % {$_.Name}
    $notLoaded = $registered | ? {$loaded -notcontains $_}
    
    ReportFinishedActivity
@@ -74,8 +61,7 @@ function Load-DependencyModules(){
    }
 }
 
-Load-DependencyModules
-#Import-Module $MainModulePSD1
+LoadModules
 
 # Update PowerCLI version after snap-in load
 $powerCliFriendlyVersion = [VMware.VimAutomation.Sdk.Util10.ProductInfo]::PowerCLIFriendlyVersion
@@ -83,23 +69,6 @@ $host.ui.RawUI.WindowTitle = $powerCliFriendlyVersion
 
 $productName = "PowerCLI"
 
-# Launch text
-write-host "          Welcome to VMware $productName!"
-write-host ""
-write-host "Log in to a vCenter Server or ESX host:              " -NoNewLine
-write-host "Connect-VIServer" -foregroundcolor yellow
-write-host "To find out what commands are available, type:       " -NoNewLine
-write-host "Get-VICommand" -foregroundcolor yellow
-write-host "To show searchable help for all PowerCLI commands:   " -NoNewLine
-write-host "Get-PowerCLIHelp" -foregroundcolor yellow  
-write-host "Once you've connected, display all virtual machines: " -NoNewLine
-write-host "Get-VM" -foregroundcolor yellow
-write-host "If you need more help, visit the PowerCLI community: " -NoNewLine
-write-host "Get-PowerCLICommunity" -foregroundcolor yellow
-write-host ""
-write-host "       Copyright (C) VMware, Inc. All rights reserved."
-write-host ""
-write-host ""
 
 # CEIP
 Try	{
@@ -133,7 +102,7 @@ Try	{
 		if ($participate) {
          [VMware.VimAutomation.Sdk.Interop.V1.CoreServiceFactory]::CoreService.CeipService.JoinCeipProgram();
       } else {
-         Set-PowerCLIConfiguration -Scope User -ParticipateInCEIP $false -Confirm:$false | Out-Null
+         Set-PowerCLIConfiguration -Scope User -ParticipateInCEIP $false -Confirm:$false -InvalidCertificateAction Ignore | Out-Null
       }
 	}
 } Catch {

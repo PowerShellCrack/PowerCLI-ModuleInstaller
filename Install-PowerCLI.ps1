@@ -1,273 +1,171 @@
-﻿#######################################################################################################################
-# PowerCLI installer - Current user
-#######################################################################################################################
-$LatestModuleVersion = '6.5.2.6268016'
+﻿##*===========================================================================
+##* FUNCTIONS
+##*===========================================================================
+Function Write-LogEntry {
+    param(
+        [Parameter(Mandatory=$true,Position=0,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$Message,
+        [Parameter(Mandatory=$false,Position=2)]
+		[string]$Source = '',
+        [parameter(Mandatory=$false)]
+        [ValidateSet(0,1,2,3,4)]
+        [int16]$Severity,
 
-Function Parse-Psd1{
-    [CmdletBinding()]
-    Param (
-        [Parameter(Mandatory=$false)]
-        [Microsoft.PowerShell.DesiredStateConfiguration.ArgumentToConfigurationDataTransformationAttribute()]
-        [hashtable] $data
-    ) 
-    return $data
-}
+        [parameter(Mandatory=$false, HelpMessage="Name of the log file that the entry will written to.")]
+        [ValidateNotNullOrEmpty()]
+        [string]$OutputLogFile = $Global:LogFilePath,
 
-function Copy-WithProgress {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory = $true)]
-        [string] $Source,
-        [Parameter(Mandatory = $true)]
-        [string] $Destination,
-        [int] $Gap = 0,
-        [int] $ReportGap = 200,
-        [ValidateSet("Directories","Files")]
-        [string] $ExcludeType,
-        [string] $Exclude,
-        [string] $ProgressDisplayName
+        [parameter(Mandatory=$false)]
+        [switch]$Outhost
     )
-    # Define regular expression that will gather number of bytes copied
-    $RegexBytes = '(?<=\s+)\d+(?=\s+)';
+    ## Get the name of this function
+    [string]${CmdletName} = $PSCmdlet.MyInvocation.MyCommand.Name
 
-    #region Robocopy params
-    # MIR = Mirror mode
-    # NP  = Don't show progress percentage in log
-    # NC  = Don't log file classes (existing, new file, etc.)
-    # BYTES = Show file sizes in bytes
-    # NJH = Do not display robocopy job header (JH)
-    # NJS = Do not display robocopy job summary (JS)
-    # TEE = Display log in stdout AND in target log file
-    # XF file [file]... :: eXclude Files matching given names/paths/wildcards.
-    # XD dirs [dirs]... :: eXclude Directories matching given names/paths.
-    $CommonRobocopyParams = '/MIR /NP /NDL /NC /BYTES /NJH /NJS';
-    
-    switch ($ExcludeType){
-        Files { $CommonRobocopyParams += ' /XF {0}' -f $Exclude };
-	    Directories { $CommonRobocopyParams += ' /XD {0}' -f $Exclude };
+    [string]$LogTime = (Get-Date -Format 'HH:mm:ss.fff').ToString()
+	[string]$LogDate = (Get-Date -Format 'MM-dd-yyyy').ToString()
+	[int32]$script:LogTimeZoneBias = [timezone]::CurrentTimeZone.GetUtcOffset([datetime]::Now).TotalMinutes
+	[string]$LogTimePlusBias = $LogTime + $script:LogTimeZoneBias
+    #  Get the file name of the source script
+
+    Try {
+	    If ($script:MyInvocation.Value.ScriptName) {
+		    [string]$ScriptSource = Split-Path -Path $script:MyInvocation.Value.ScriptName -Leaf -ErrorAction 'Stop'
+	    }
+	    Else {
+		    [string]$ScriptSource = Split-Path -Path $script:MyInvocation.MyCommand.Definition -Leaf -ErrorAction 'Stop'
+	    }
+    }
+    Catch {
+	    $ScriptSource = ''
     }
     
-    #endregion Robocopy params
     
-    #generate log format
-    $TimeGenerated = "$(Get-Date -Format HH:mm:ss).$((Get-Date).Millisecond)+000"
-    $Line = '<![LOG[{0}]LOG]!><time="{1}" date="{2}" component="{3}" context="" type="{4}" thread="" file="">'
-
-    #region Robocopy Staging
-    Write-Verbose -Message 'Analyzing robocopy job ...';
-    $StagingLogPath = '{0}\offlinemodules-staging-{1}.log' -f $env:temp, (Get-Date -Format 'yyyy-MM-dd hh-mm-ss');
-
-    $StagingArgumentList = '"{0}" "{1}" /LOG:"{2}" /L {3}' -f $Source, $Destination, $StagingLogPath, $CommonRobocopyParams;
-    Write-Verbose -Message ('Staging arguments: {0}' -f $StagingArgumentList);
-    Start-Process -Wait -FilePath robocopy.exe -ArgumentList $StagingArgumentList -WindowStyle Hidden;
-    # Get the total number of files that will be copied
-    $StagingContent = Get-Content -Path $StagingLogPath;
-    $TotalFileCount = $StagingContent.Count - 1;
-
-    # Get the total number of bytes to be copied
-    [RegEx]::Matches(($StagingContent -join "`n"), $RegexBytes) | % { $BytesTotal = 0; } { $BytesTotal += $_.Value; };
-    Write-Verbose -Message ('Total bytes to be copied: {0}' -f $BytesTotal);
-    #endregion Robocopy Staging
-
-    #region Start Robocopy
-    # Begin the robocopy process
-    $RobocopyLogPath = '{0}\offlinemodules-{1}.log' -f $env:temp, (Get-Date -Format 'yyyy-MM-dd hh-mm-ss');
-    $ArgumentList = '"{0}" "{1}" /LOG:"{2}" /ipg:{3} {4}' -f $Source, $Destination, $RobocopyLogPath, $Gap, $CommonRobocopyParams;
-    Write-Verbose -Message ('Beginning the robocopy process with arguments: {0}' -f $ArgumentList);
-    $Robocopy = Start-Process -FilePath robocopy.exe -ArgumentList $ArgumentList -Verbose -PassThru -WindowStyle Hidden;
-    Start-Sleep -Milliseconds 100;
-    #endregion Start Robocopy
-
-    #region Progress bar loop
-    while (!$Robocopy.HasExited) {
-        Start-Sleep -Milliseconds $ReportGap;
-        $BytesCopied = 0;
-        $LogContent = Get-Content -Path $RobocopyLogPath;
-        $BytesCopied = [Regex]::Matches($LogContent, $RegexBytes) | ForEach-Object -Process { $BytesCopied += $_.Value; } -End { $BytesCopied; };
-        $CopiedFileCount = $LogContent.Count - 1;
-        Write-Verbose -Message ('Bytes copied: {0}' -f $BytesCopied);
-        Write-Verbose -Message ('Files copied: {0}' -f $LogContent.Count);
-        $Percentage = 0;
-        if ($BytesCopied -gt 0) {
-           $Percentage = (($BytesCopied/$BytesTotal)*100)
+    If(!$Severity){$Severity = 1}
+    $LogFormat = "<![LOG[$Message]LOG]!>" + "<time=`"$LogTimePlusBias`" " + "date=`"$LogDate`" " + "component=`"$ScriptSource`" " + "context=`"$([Security.Principal.WindowsIdentity]::GetCurrent().Name)`" " + "type=`"$Severity`" " + "thread=`"$PID`" " + "file=`"$ScriptSource`">"
+    
+    # Add value to log file
+    try {
+        Out-File -InputObject $LogFormat -Append -NoClobber -Encoding Default -FilePath $OutputLogFile -ErrorAction Stop
+    }
+    catch {
+        Write-Host ("[{0}] [{1}] :: Unable to append log entry to [{1}], error: {2}" -f $LogTimePlusBias,$ScriptSource,$OutputLogFile,$_.Exception.ErrorMessage) -ForegroundColor Red
+    }
+    If($Outhost){
+        If($Source){
+            $OutputMsg = ("[{0}] [{1}] :: {2}" -f $LogTimePlusBias,$Source,$Message)
         }
-        If ($ProgressDisplayName){$ActivityDisplayName = $ProgressDisplayName}Else{$ActivityDisplayName = 'Robocopy'}
-        Write-Progress -Activity $ActivityDisplayName -Status ("Copied {0} of {1} files; Copied {2} of {3} bytes" -f $CopiedFileCount, $TotalFileCount, $BytesCopied, $BytesTotal) -PercentComplete $Percentage
+        Else{
+            $OutputMsg = ("[{0}] [{1}] :: {2}" -f $LogTimePlusBias,$ScriptSource,$Message)
+        }
+
+        Switch($Severity){
+            0       {Write-Host $OutputMsg -ForegroundColor Green}
+            1       {Write-Host $OutputMsg -ForegroundColor Gray}
+            2       {Write-Warning $OutputMsg}
+            3       {Write-Host $OutputMsg -ForegroundColor Red}
+            4       {If($Global:Verbose){Write-Verbose $OutputMsg}}
+            default {Write-Host $OutputMsg}
+        }
     }
-    #endregion Progress loop
-
-    #region Function output
-    [PSCustomObject]@{
-        BytesCopied = $BytesCopied;
-        FilesCopied = $CopiedFileCount;
-    };
-    #endregion Function output
 }
 
 
 
-## Variables: Script Name and Script Paths
-[string]$scriptPath = $MyInvocation.MyCommand.Definition
-[string]$scriptRoot = Split-Path -Path $scriptPath -Parent
-$UserPCLIModule = $env:PSModulePath -split ';' | Where {$_ -like "$home*"}
+##*===========================================================================
+##* VARIABLES
+##*===========================================================================
+## Instead fo using $PSScriptRoot variable, use the custom InvocationInfo for ISE runs
+If (Test-Path -LiteralPath 'variable:HostInvocation') { $InvocationInfo = $HostInvocation } Else { $InvocationInfo = $MyInvocation }
+[string]$scriptDirectory = Split-Path $MyInvocation.MyCommand.Path -Parent
+[string]$scriptName = Split-Path $MyInvocation.MyCommand.Path -Leaf
+[string]$scriptBaseName = [System.IO.Path]::GetFileNameWithoutExtension($scriptName)
 
-# Check to see if last version folder is there, if not find the next best one
-If (!(Test-Path "$scriptRoot\$LatestModuleVersion")){
-    Write-Host "WARNING: PowerCLI version: $LatestModuleVersion was not found, checking for differnt version...." -ForegroundColor Yellow
-    $LatestModuleVersion = ((Split-Path (Get-ChildItem $scriptRoot -Recurse -Filter VMware.PowerCLI.psd1 | select -Last 1).Fullname -Parent) -split "\\")[-1]
-    Write-Host "INFO: Found PowerCLI version: $LatestModuleVersion, loading that instead...." -ForegroundColor Yellow
+Try
+{
+	$tsenv = New-Object -COMObject Microsoft.SMS.TSEnvironment
+    $Progress = New-Object -ComObject Microsoft.SMS.TSprogressUI
+	#$logPath = $tsenv.Value("LogPath")
+    $LogPath = $tsenv.Value("_SMSTSLogPath")
 }
+Catch
+{
+	Write-Warning "TS environment not detected. Assuming stand-alone mode."
+}
+
+If(!$LogPath){$LogPath = $env:TEMP}
+[string]$FileName = $scriptBaseName +'.log'
+$Global:LogFilePath = Join-Path $LogPath -ChildPath $FileName
+Write-Host "Using log file: $LogFilePath"
+
+
+#Get required folder and File paths
+[string]$ModulesPath = Join-Path -Path $scriptDirectory -ChildPath 'Modules'
+[string]$BinPath = Join-Path -Path $scriptDirectory -ChildPath 'Bin'
+[string]$PSScriptsPath = Join-Path -Path $scriptDirectory -ChildPath 'Scripts'
+
+#Get all paths to PowerShell Modules
+$UserModulePath = $env:PSModulePath -split ';' | Where {$_ -like "$home*"}
+$UserScriptPath = "$env:USERPROFILE\Documents\WindowsPowerShell\Scripts"
+$DefaultUserModulePath = "$env:SystemDrive\Users\Default\Documents\WindowsPowerShell\Modules"
+$DefaultUserScriptPath = "$env:SystemDrive\Users\Default\Documents\WindowsPowerShell\Scripts"
+$AllUsersModulePath = $env:PSModulePath -split ';' | Where {$_ -like "$env:ProgramFiles\WindowsPowerShell*"}
+$SystemModulePath = $env:PSModulePath -split ';' | Where {$_ -like "$env:windir*"}
+
+#find profile module
+$PowerShellNoISEProfile = $profile -replace "ISE",""
+
 
 #Install Nuget prereq
-$NuGetAssemblySourcePath = Get-ChildItem $scriptRoot -Recurse -Filter nuget -Directory | Where-Object {$_.FullName -match "$LatestModuleVersion" }
-$NuGetAssemblyVersion = (Get-ChildItem $NuGetAssemblySourcePath.FullName).Name
-$NuGetAssemblyDestPath = "$env:ProgramFiles\PackageManagement\ProviderAssemblies\nuget"
-If (!(Test-Path $NuGetAssemblyDestPath\$NuGetAssemblyVersion)){
-    Write-Host "Copying nuget Assembly ($NuGetAssemblyVersion) to $NuGetAssemblyDestPath" -ForegroundColor Cyan
-    New-Item $NuGetAssemblyDestPath -ItemType Directory -ErrorAction SilentlyContinue
-    #Copy-Item -Path "$NuGetAssemblySourcePath\*" -Destination $NuGetAssemblyDestPath –Recurse -ErrorAction SilentlyContinue
-    Copy-WithProgress -Source $NuGetAssemblySourcePath.FullName -Destination $NuGetAssemblyDestPath -ProgressDisplayName 'Copying Nuget Assembly Files...'
+$NuGetAssemblySourcePath = Get-ChildItem "$BinPath\nuget" -Recurse -Filter *.dll
+If($NuGetAssemblySourcePath){
+    $NuGetAssemblyVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($NuGetAssemblySourcePath.FullName).FileVersion
+    $NuGetAssemblyDestPath = "$env:ProgramFiles\PackageManagement\ProviderAssemblies\nuget\$NuGetAssemblyVersion"
+    If (!(Test-Path $NuGetAssemblyDestPath)){
+        Write-Host "Copying nuget Assembly ($NuGetAssemblyVersion) to $NuGetAssemblyDestPath" -ForegroundColor Cyan
+        New-Item $NuGetAssemblyDestPath -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
+        Copy-Item -Path $NuGetAssemblySourcePath.FullName -Destination $NuGetAssemblyDestPath -Force -ErrorAction SilentlyContinue | Out-Null
+    }
 }
 
-#Install PowerCLI Modules locally
-$NetModule = Get-ChildItem $scriptRoot -Recurse -Filter VMware.PowerCLI -Directory | Where-Object {$_.FullName -match "$LatestModuleVersion" }
-$PowerCLINetPath = Split-Path $($NetModule.FullName) -Parent
+
+#Find PowerCLI Module
+$ModuleFolder = $("VMware.PowerCLI")
+# Get Modules in modules folder and whats installed
+
+$ModuleSetSourcePath = Get-ChildItem -Path $ModulesPath -Depth 0 | Where-Object { $_.PSIsContainer} | Where-Object { $_ -like "$ModuleFolder*"}
+$ModuleVersion = $ModuleSetSourcePath.BaseName.split("-")[1]
+    
+$UserModuleDestPath = "$UserModulePath\$ModuleFolder"
+$DefaultUserModuleDestPath = "$DefaultUserModulePath\$ModuleFolder"
+$AllUsersModuleDestPath = "$AllUsersModulePath\$ModuleFolder"
+
+
+Set-Location -Path $ModuleSetSourcePath.FullName
+Write-LogEntry ("Installing VMWare PowerCLI ({0}) to [{1}]" -f $ModuleVersion,$AllUsersModuleDestPath) -Severity 1 -Outhost
+Try{
+    Install-Module $ModuleFolder -Scope AllUsers -AllowClobber -Force -Confirm:$False | Out-Null
+}
+Catch{
+    Write-LogEntry "Failed to Install VMWare PowerCLI ({0}) Module..." -Severity 3 -Outhost
+    Exit -1 
+
+}
 
 #copy PowerCLI Modules to User directory if they don't exist ($env:PSModulePath)
-If (!(Test-Path "$UserPCLIModule\VMware.PowerCLI\$LatestModuleVersion\VMware.PowerCLI.psd1")){
-    Write-Host "Copying Vmware PowerCLI Offline Module Files ($LatestModuleVersion) to $UserPCLIModule" -ForegroundColor Cyan
-    #New-Item -Path $UserPCLIModule -ItemType Directory -ErrorAction SilentlyContinue
-    #Copy-Item -Path "$PowerCLINetPath\*" -Destination $UserPCLIModule –Recurse -ErrorAction SilentlyContinue
-   
-    #Remove-Item -Path "$UserPCLIModule\nuget" -Recurse -Force -ErrorAction SilentlyContinue
-    Copy-WithProgress -Source $PowerCLINetPath -Destination $UserPCLIModule -ExcludeType Directories -Exclude 'nuget' -ProgressDisplayName 'Copying Vmware PowerCLI Modules Files...'
-    Copy-Item -Path "$scriptRoot\VMware PowerCLI (32-Bit).lnk" -Destination "$env:USERPROFILE\Desktop" -ErrorAction SilentlyContinue
-    Copy-Item -Path "$scriptRoot\VMware PowerCLI.lnk" -Destination "$env:USERPROFILE\Desktop" -ErrorAction SilentlyContinue
+Write-LogEntry ("Checking installed module: [{0}\{1}\{2}.psd1]" -f $AllUsersModuleDestPath,$ModuleVersion,$ModuleFolder) -Severity 4 -Outhost
+
+If (Test-Path "$AllUsersModuleDestPath\$ModuleFolder\$ModuleVersion\$ModuleFolder.psd1"){
+
+    #copy modules files
+    Write-LogEntry ("{0} :: Copying VMware PowerCLI: [{1}] modules to [{2}]" -f $scriptName,$ModuleVersion,$AllUsersModuleDestPath) -Severity 1 -Outhost
+    Copy-Item -Path "$PSScriptsPath\$ModuleFolder\VMware.PowerCLI.ico" -Destination $AllUsersModuleDestPath -ErrorAction SilentlyContinue | Out-Null
+    Copy-Item -Path "$PSScriptsPath\$ModuleFolder\Initialize-PowerCLIEnvironment.ps1" -Destination $AllUsersModuleDestPath -ErrorAction SilentlyContinue | Out-Null
+
+    #copy scripts for module files for public desktop
+    Write-LogEntry ("{0} :: Copying VMware PowerCLI shortcuts to: [{1}\Desktop]" -f $scriptName,$env:PUBLIC) -Severity 1 -Outhost
+    Copy-Item -Path "$PSScriptsPath\$ModuleFolder\VMware PowerCLI (32-Bit).lnk" -Destination "$env:PUBLIC\Desktop" -ErrorAction SilentlyContinue | Out-Null
+    Copy-Item -Path "$PSScriptsPath\$ModuleFolder\VMware PowerCLI.lnk" -Destination "$env:PUBLIC\Desktop" -ErrorAction SilentlyContinue | Out-Null
 }
 
-
-# List of modules to be loaded
-$LocalModule = Get-ChildItem $UserPCLIModule -Recurse -Filter VMware.PowerCLI -Directory
-$MainModulePSD1 = (Get-ChildItem $LocalModule.FullName -Recurse -Filter *.psd1).FullName
-$ParsedPSD1 = Parse-Psd1 $MainModulePSD1
-$PowerCLIVersion = $ParsedPSD1.ModuleVersion
-$moduleList = $ParsedPSD1.RequiredModules
-
-$productName = "PowerCLI"
-$productShortName = "PowerCLI"
-
-$loadingActivity = "Loading $productName"
-$script:completedActivities = 0
-$script:percentComplete = 0
-$script:currentActivity = ""
-$script:totalActivities = `
-   $moduleList.Count + 1
-
-function ReportStartOfActivity($activity) {
-   $script:currentActivity = $activity
-   Write-Progress -Activity $loadingActivity -CurrentOperation $script:currentActivity -PercentComplete $script:percentComplete
-}
-function ReportFinishedActivity() {
-   $script:completedActivities++
-   $script:percentComplete = (100.0 / $totalActivities) * $script:completedActivities
-   $script:percentComplete = [Math]::Min(99, $percentComplete)
-   
-   Write-Progress -Activity $loadingActivity -CurrentOperation $script:currentActivity -PercentComplete $script:percentComplete
-}
-
-# Load modules
-function Load-DependencyModules(){
-    ReportStartOfActivity "Searching for $productShortName module components..."
-
-   
-
-   $loaded = Get-Module -Name $moduleList.ModuleName -ErrorAction Ignore | % {$_.Name}
-   $registered = Get-Module -Name $moduleList.ModuleName -ListAvailable -ErrorAction Ignore | % {$_.Name}
-   $notLoaded = $null
-   $notLoaded = $registered | ? {$loaded -notcontains $_}
-   
-   ReportFinishedActivity
-   
-   foreach ($module in $registered) {
-      if ($loaded -notcontains $module) {
-		 ReportStartOfActivity "Loading module $module"
-         
-		 Import-Module $module
-		 
-		 ReportFinishedActivity
-      }
-   }
-}
-
-Load-DependencyModules
-If($LASTEXITCODE -gt 0){Break}
-#Import-Module $MainModulePSD1
-
-# Update PowerCLI version after snap-in load
-$powerCliFriendlyVersion = [VMware.VimAutomation.Sdk.Util10.ProductInfo]::PowerCLIFriendlyVersion
-$host.ui.RawUI.WindowTitle = $powerCliFriendlyVersion
-
-$productName = "PowerCLI"
-
-# Launch text
-write-host "          Welcome to VMware $productName!"
-write-host ""
-write-host "Log in to a vCenter Server or ESX host:              " -NoNewLine
-write-host "Connect-VIServer" -foregroundcolor yellow
-write-host "To find out what commands are available, type:       " -NoNewLine
-write-host "Get-VICommand" -foregroundcolor yellow
-write-host "To show searchable help for all PowerCLI commands:   " -NoNewLine
-write-host "Get-PowerCLIHelp" -foregroundcolor yellow  
-write-host "Once you've connected, display all virtual machines: " -NoNewLine
-write-host "Get-VM" -foregroundcolor yellow
-write-host "If you need more help, visit the PowerCLI community: " -NoNewLine
-write-host "Get-PowerCLICommunity" -foregroundcolor yellow
-write-host ""
-write-host "       Copyright (C) VMware, Inc. All rights reserved."
-write-host ""
-write-host ""
-
-# CEIP
-Try	{
-	$configuration = Get-PowerCLIConfiguration -Scope Session
-
-	if ($promptForCEIP -and
-		$configuration.ParticipateInCEIP -eq $null -and `
-		[VMware.VimAutomation.Sdk.Util10Ps.CommonUtil]::InInteractiveMode($Host.UI)) {
-
-		# Prompt
-		$caption = "Participate in VMware Customer Experience Improvement Program (CEIP)"
-		$message = `
-			"VMware's Customer Experience Improvement Program (`"CEIP`") provides VMware with information " +
-			"that enables VMware to improve its products and services, to fix problems, and to advise you " +
-			"on how best to deploy and use our products.  As part of the CEIP, VMware collects technical information " +
-			"about your organization’s use of VMware products and services on a regular basis in association " +
-			"with your organization’s VMware license key(s).  This information does not personally identify " +
-			"any individual." +
-			"`n`nFor more details: press Ctrl+C to exit this prompt and type `"help about_ceip`" to see the related help article." +
-			"`n`nYou can join or leave the program at any time by executing: Set-PowerCLIConfiguration -Scope User -ParticipateInCEIP `$true or `$false. "
-
-		$acceptLabel = "&Join"
-		$choices = (
-			(New-Object -TypeName "System.Management.Automation.Host.ChoiceDescription" -ArgumentList $acceptLabel,"Participate in the CEIP"),
-			(New-Object -TypeName "System.Management.Automation.Host.ChoiceDescription" -ArgumentList "&Leave","Don't participate")
-		)
-		$userChoiceIndex = $Host.UI.PromptForChoice($caption, $message, $choices, 0)
-		
-		$participate = $choices[$userChoiceIndex].Label -eq $acceptLabel
-
-		if ($participate) {
-         [VMware.VimAutomation.Sdk.Interop.V1.CoreServiceFactory]::CoreService.CeipService.JoinCeipProgram();
-      } else {
-         Set-PowerCLIConfiguration -Scope User -ParticipateInCEIP $false -Confirm:$false | Out-Null
-      }
-	}
-} Catch {
-	# Fail silently
-}
-# end CEIP
-
-Write-Progress -Activity $loadingActivity -Completed
-
-
-cd \
+Exit
