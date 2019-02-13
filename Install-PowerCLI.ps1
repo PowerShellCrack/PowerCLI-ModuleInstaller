@@ -8,6 +8,8 @@
     CurrentUser = Copy module to user Documents\WindowsPowerShell Folder'
 .PARAMETER CreateShortcut
     - Create desktop shortcut to load Powercli
+.PARAMETER ForceInstall
+    Force modules to re-import and install even if same version found
 .EXAMPLE
     powershell.exe -ExecutionPolicy Bypass -file "Install-PowerCLI.ps1" -CreateShortcut
 .NOTES
@@ -28,7 +30,10 @@ Param (
                                                                                    CurrentUser = Copy module to user Documents\WindowsPowerShell Folder')]
 	[ValidateSet("CurrentUser","AllUsers")]
     [string]$SkopePath = 'AllUsers',
-    [switch]$CreateShortcut
+    [Parameter(Mandatory=$false)]
+    [switch]$CreateShortcut,
+        [Parameter(Mandatory=$false,Position=1,HelpMessage='Force modules to re-import and install')]
+	[switch]$ForceInstall = $false
 )
 
 
@@ -326,7 +331,7 @@ If ($InstalledModule){
         $Manifest = Test-ModuleManifest $InstalledPowerCLI.RootModule -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
         $DependencyModules = $Manifest.RequiredModules
     
-        #uninstall each dependency
+        #uninstall and remove each dependency
         Foreach ($Module in $DependencyModules){
             Try{
                 Write-LogEntry ("Uninstalling module: {0} ({1})..." -f $Module.Name,$Module.Version) -Outhost
@@ -338,7 +343,7 @@ If ($InstalledModule){
             }
         }
 
-        #uninstall Main Module
+        #uninstall and remove Main Module
         Try{
             Write-LogEntry ("Uninstalling module: {0} ({1})..." -f $InstalledModule.Name,$InstalledModule.Version) -Outhost
             Uninstall-Module -Name $InstalledModule.Name -MinimumVersion $InstalledModule.Version -Force -ErrorAction Stop | Remove-Module -Force

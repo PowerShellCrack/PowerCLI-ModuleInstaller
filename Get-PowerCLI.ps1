@@ -10,7 +10,7 @@
 .PARAMETER RemoveOld
     Remove older modules if found
 .PARAMETER ForceInstall
-    Force modules to re-import and install if same version found
+    Force modules to re-import and install even if same version found
 .PARAMETER Refresh
     Re-Download modules if exist
 .NOTES
