@@ -3,10 +3,13 @@
     Install PowerCLI Offline
 .DESCRIPTION
     Install the nuget package manamgment prereq then installs PowerCLI module
-.PARAMETER 
-    NONE
+.PARAMETER SkopePath
+    Where to load the modules. AllUsers = Default: Copy module to Program Files Directory
+    CurrentUser = Copy module to user Documents\WindowsPowerShell Folder'
+.PARAMETER CreateShortcut
+    - Create desktop shortcut to load Powercli
 .EXAMPLE
-    powershell.exe -ExecutionPolicy Bypass -file "Install-PowerCLI.ps1"
+    powershell.exe -ExecutionPolicy Bypass -file "Install-PowerCLI.ps1" -CreateShortcut
 .NOTES
     Script name: Install-PowerCLI.ps1
     Version:     3.0
@@ -25,7 +28,7 @@ Param (
                                                                                    CurrentUser = Copy module to user Documents\WindowsPowerShell Folder')]
 	[ValidateSet("CurrentUser","AllUsers")]
     [string]$SkopePath = 'AllUsers',
-    [boolean]$CreateShortcut = $false
+    [switch]$CreateShortcut
 )
 
 
