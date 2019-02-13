@@ -19,10 +19,15 @@ Include a progress bar for coping</li>
 
 ## How to use:
  1. Clone or downlaod a copy of this project
- 2. On an internet connected device:
-     Go to https://code.vmware.com/web/dp/tool/vmware-powercli --> Download the "VMware-PowerCLI-<version>.zip" and extract it to this modules location
-     or Save-Module VMware.PowerCli -Path <location of this module folder>
- 2. Copy entire PowerCLI-ModuleInstaller to disconnected system
- 3. Run: 
+ 2. On an internet connected device:<br />
+    run: 
+             
+        powershell.exe -ExecutionPolicy Bypass -file "Install-PowerCLI.ps1"
+              
+    MANUALLY: <br />      
+     Go to https://code.vmware.com/web/dp/tool/vmware-powercli --> Download the "VMware-PowerCLI-<version>.zip" and extract it to this modules location<br />
+     or Save-Module VMware.PowerCli -Path <location of this module folder><br />
+ 2. Copy entire PowerCLI-ModuleInstaller to disconnected system<br />
+ 3. Run: <br />
  
         powershell.exe -ExecutionPolicy Bypass -file "Install-PowerCLI.ps1" -CreateShortcut
