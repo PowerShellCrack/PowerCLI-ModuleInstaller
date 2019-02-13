@@ -1,7 +1,7 @@
 # PowerCLI Installer v2 (aka v3)
-** Installing PowerCLl Offline **
+*** Installing PowerCLl Offline **
 
-<b>FILE:</b> Install-PowerCLI.ps1<br />
+##FILE: Install-PowerCLI.ps1
 <b>URL:</b> http://www.powershellcrack.com/2017/09/installing-powercli-on-disconnected.html<br />
 <b>DESCRIPTION:</b>Install an Offline copy of PowerCLI from https://www.powershellgallery.com/packages/VMware.PowerCLI
 loading all dependencies in the appropiate order. Also installs the nuget assemby
