@@ -242,13 +242,17 @@ If(!$LogPath){$LogPath = $env:TEMP}
 $Global:LogFilePath = Join-Path $LogPath -ChildPath $FileName
 Write-Host "Using log file: $LogFilePath"
 
+#set variable to false
+$InstallModule = $false
+$UninstallModule = $false
+[string]$originalLocation = Get-Location
 
 #Get required folder and File paths
 [string]$ModulesPath = Join-Path -Path $scriptDirectory -ChildPath 'Modules'
 [string]$BinPath = Join-Path -Path $scriptDirectory -ChildPath 'Bin'
 [string]$PSScriptsPath = Join-Path -Path $scriptDirectory -ChildPath 'Scripts'
 
-[string]$originalLocation = Get-Location
+
 
 #Get all paths to PowerShell Modules
 $UserModulePath = $env:PSModulePath -split ';' | Where {$_ -like "$home*"}
@@ -277,7 +281,9 @@ If($NuGetAssemblySourcePath){
     Get-childitem $NuGetAssemblyDestPath -Filter *.dll | Unblock-File -Confirm:$false | Out-Null
 }
 
-
+##*===============================================
+##* Load Section
+##*===============================================
 #Get-Module VMware.* -ListAvailable | Uninstall-Module -Force
 $LatestVersion = $null
 # Find Module name using regex
@@ -305,73 +311,98 @@ Foreach($Module in $ModuleSetSourcePath){
             $ModuleName = $MainManifest.Name
         }
     }
-    Else{
-        Write-LogEntry ("module name [{0}] does not match VMware.PowerCLI" -f $MainManifest.Name) -Severity 2 -Outhost
+}
+
+#if a module name was found continue
+If($ModuleName){
+    Write-LogEntry ("Found lastest [{0}] module in folder [{1}] with version: {2}" -f $ModuleName,$ModulePath,$strLatestVersion) -Outhost
+
+    #Get destination path based on skopepath
+    switch($SkopePath){
+        "AllUsers"    { $ModuleDestPath = Join-path $AllUsersModulePath -ChildPath $ModuleName
+                        $ScriptsDestPath = Join-path $AllUsersScriptsPath -ChildPath $ModuleName
+                      } 
+
+        "CurrentUser" { $ModuleDestPath = Join-path $UserModulePath -ChildPath $ModuleName
+                        $ScriptsDestPath = Join-path $UserScriptPath -ChildPath $ModuleName
+                      }
+
     }
 }
-Write-LogEntry ("Found lastest [{0}] module with version: {1}" -f $ModuleName,$strLatestVersion) -Outhost
+Else{
+    Write-LogEntry ("module name [{0}] does not match VMware.PowerCLI" -f $Module) -Severity 2 -Outhost
+    Exit
+}
+##*===============================================
+##* Detect Section
+##*===============================================
+#detect if Powercli is already installed
+$FoundModule = Get-Module VMware.PowerCLI* -ListAvailable
 
-#set variable to true
-$ModuleInstalled = $false
+If ($FoundModule){
 
-#detect if Powercli is already installed:
-$InstalledModule = Get-Module VMware.PowerCLI* -ListAvailable
-If ($InstalledModule){
-    #check if version is the same as whats already installed
-    If($InstalledModule.Version -ge $strLatestVersion){
-        Write-LogEntry ("An already installed [{0}] module version is equal to or greater than: {1}" -f $ModuleName,$strLatestVersion) -Outhost
-        $ModuleInstalled = $true
+    #check if installed version is the same as whats downloaded
+    If($FoundModule.Version -ge $LatestVersion){
+        
+        #If forced, set trigger uninstall switch
+        If($ForceInstall){
+            Write-LogEntry ("An already installed [{0}] module version is equal to or greater than: {1}, Force switch is ignoring version..." -f $ModuleName,$strLatestVersion) -Outhost
+            $UninstallModule = $true
+        }
+        Else{
+            Write-LogEntry ("An already installed [{0}] module version is equal to or greater than: {1}" -f $ModuleName,$strLatestVersion) -Outhost
+        }
     }
     Else{
-        #clear list, build collection object
-        $Dependencies = @()
-        $Dependencies = New-Object System.Collections.Generic.List[System.Object]
-
-        # Grab root modules dependencies
-        $Manifest = Test-ModuleManifest $InstalledPowerCLI.RootModule -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-        $DependencyModules = $Manifest.RequiredModules
-    
-        #uninstall and remove each dependency
-        Foreach ($Module in $DependencyModules){
-            Try{
-                Write-LogEntry ("Uninstalling module: {0} ({1})..." -f $Module.Name,$Module.Version) -Outhost
-                Uninstall-Module -Name $Module.Name -MinimumVersion $Module.Version -Force -ErrorAction Stop | Remove-Module -Force
-            }
-            Catch{
-                Write-LogEntry ("Failed to uninstall module: {0} ({1})" -f $Module.Name,$Module.Version) -Severity 3 -Outhost
-                break 
-            }
-        }
-
-        #uninstall and remove Main Module
-        Try{
-            Write-LogEntry ("Uninstalling module: {0} ({1})..." -f $InstalledModule.Name,$InstalledModule.Version) -Outhost
-            Uninstall-Module -Name $InstalledModule.Name -MinimumVersion $InstalledModule.Version -Force -ErrorAction Stop | Remove-Module -Force
-        }
-        Catch{
-            Write-LogEntry ("Failed to uninstall module: {0} ({1})" -f $InstalledModule.Name,$InstalledModule.Version) -Severity 3 -Outhost
-            break 
-        }
+       $UninstallModule = $true
+       $InstallModule = $true
     }
 }
 Else{
     Write-LogEntry ("[{0}] module is not installed. Preparing to install..." -f $ModuleName) -Outhost
+    $InstallModule = $true
 }
 
+##*===============================================
+##* Uninstall Section
+##*===============================================
+If($UninstallModule){
+    #clear list, build collection object
+    $Dependencies = @()
+    $Dependencies = New-Object System.Collections.Generic.List[System.Object]
 
-#Get destination path based on skopepath
-switch($SkopePath){
-    "AllUsers"    { $ModuleDestPath = Join-path $AllUsersModulePath -ChildPath $ModuleName
-                    $ScriptsDestPath = Join-path $AllUsersScriptsPath -ChildPath $ModuleName
-                  } 
+    # Grab root modules dependencies
+    $Manifest = Test-ModuleManifest $InstalledPowerCLI.RootModule -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    $DependencyModules = $Manifest.RequiredModules
+    
+    #uninstall and remove each dependency
+    Foreach ($Module in $DependencyModules){
+        Try{
+            Write-LogEntry ("Uninstalling module: {0} ({1})..." -f $Module.Name,$Module.Version) -Outhost
+            Uninstall-Module -Name $Module.Name -MinimumVersion $Module.Version -Force -ErrorAction Stop | Remove-Module -Force
+        }
+        Catch{
+            Write-LogEntry ("Failed to uninstall module: {0} ({1})" -f $Module.Name,$Module.Version) -Severity 3 -Outhost
+            break 
+        }
+    }
 
-    "CurrentUser" { $ModuleDestPath = Join-path $UserModulePath -ChildPath $ModuleName
-                    $ScriptsDestPath = Join-path $UserScriptPath -ChildPath $ModuleName
-                  }
-
+    #uninstall and remove Main Module
+    Try{
+        Write-LogEntry ("Uninstalling module: {0} ({1})..." -f $FoundModule.Name,$FoundModule.Version) -Outhost
+        Uninstall-Module -Name $FoundModule.Name -MinimumVersion $FoundModule.Version -Force -ErrorAction Stop | Remove-Module -Force
+    }
+    Catch{
+        Write-LogEntry ("Failed to uninstall module: {0} ({1})" -f $FoundModule.Name,$FoundModule.Version) -Severity 3 -Outhost
+        break 
+    }
 }
 
-If($ForceInstall -or ($ModuleInstalled -eq $False)){
+##*===============================================
+##* Install Section
+##*===============================================
+#install new module if force or not installed already
+If($ForceInstall -or $InstallModule){
     #copy Module to the STAGING folder
     $StagingModuleDestPath = ($ModuleDestPath + '-stage')
     #must be copied to one of PowerShell module folders
@@ -384,7 +415,7 @@ If($ForceInstall -or ($ModuleInstalled -eq $False)){
     #install the modules
     #this will copy it to the root module folder with versions folders for each dependency
     Try{
-        Write-LogEntry ("Installing VMWare PowerCLI ({0}) to [{1}]" -f $ModuleVersion,$ModuleDestPath) -Severity 1 -Outhost
+        Write-LogEntry ("Installing VMWare PowerCLI ({0}) to [{1}]" -f $strLatestVersion,$ModuleDestPath) -Severity 1 -Outhost
         Install-Module $ModuleName -Scope $SkopePath -AllowClobber -Force -Confirm:$False | Out-Null
     }
     Catch{
@@ -394,22 +425,25 @@ If($ForceInstall -or ($ModuleInstalled -eq $False)){
     }
 
     #Change location so it not in use
-    Set-Location -Path $ModuleDestPath
+    Set-Location -Path $originalLocation
 
     #delete original staging folder
     Remove-Item $StagingModuleDestPath -Recurse -Force | Out-Null
 }
 
+##*===============================================
+##* Shortcut Section
+##*===============================================
 If($CreateShortcut){
     #copy PowerCLI Modules to User directory if they don't exist ($env:PSModulePath)
-    Write-LogEntry ("Checking installed module: [{0}\{1}\{2}.psd1]" -f $AllUsersModuleDestPath,$ModuleVersion,$ModuleFolder) -Severity 4 -Outhost
+    Write-LogEntry ("Checking installed module: [{0}\{1}\{2}.psd1]" -f $ModuleDestPath,$strLatestVersion,$ModuleName) -Severity 4 -Outhost
 
     If (Test-Path "$AllUsersModuleDestPath\$ModuleFolder\$ModuleVersion\$ModuleFolder.psd1"){
 
         #copy modules files
-        Write-LogEntry ("{0} :: Copying VMware PowerCLI: [{1}] modules to [{2}]" -f $scriptName,$ModuleVersion,$AllUsersModuleDestPath) -Severity 1 -Outhost
-        Copy-Item -Path "$PSScriptsPath\$ModuleFolder\VMware.PowerCLI.ico" -Destination $AllUsersModuleDestPath -ErrorAction SilentlyContinue | Out-Null
-        Copy-Item -Path "$PSScriptsPath\$ModuleFolder\Initialize-PowerCLIEnvironment.ps1" -Destination $AllUsersModuleDestPath -ErrorAction SilentlyContinue | Out-Null
+        Write-LogEntry ("{0} :: Copying VMware PowerCLI: [{1}] modules to [{2}]" -f $scriptName,$ModuleVersion,$ModuleDestPath) -Severity 1 -Outhost
+        Copy-Item -Path "$PSScriptsPath\$ModuleFolder\VMware.PowerCLI.ico" -Destination $ModuleDestPath -ErrorAction SilentlyContinue | Out-Null
+        Copy-Item -Path "$PSScriptsPath\$ModuleFolder\Initialize-PowerCLIEnvironment.ps1" -Destination $ModuleDestPath -ErrorAction SilentlyContinue | Out-Null
 
         #copy scripts for module files for public desktop
         Write-LogEntry ("{0} :: Copying VMware PowerCLI shortcuts to: [{1}\Desktop]" -f $scriptName,$env:PUBLIC) -Severity 1 -Outhost
