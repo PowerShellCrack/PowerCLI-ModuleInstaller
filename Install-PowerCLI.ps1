@@ -17,7 +17,7 @@
     Version:     3.1.0001
     Author:      Richard Tracy
     DateCreated: 2018-04-02
-    LastUpdate:  2019-02-12
+    LastUpdate:  2019-02-13
 
 .LINK
     https://code.vmware.com/web/dp/tool/vmware-powercli/11.1.0
@@ -406,7 +406,7 @@ If($ForceInstall -or $InstallModule){
     #copy Module to the STAGING folder
     $StagingModuleDestPath = ($ModuleDestPath + '-stage')
     #must be copied to one of PowerShell module folders
-    Write-LogEntry ("Installing VMWare PowerCLI ({0}) to [{1}]" -f $strLatestVersion,$ModuleDestPath) -Severity 1 -Outhost
+    Write-LogEntry ("Staging VMWare PowerCLI ({0}) to [{1}]" -f $strLatestVersion,$ModuleDestPath) -Severity 1 -Outhost
     Copy-WithProgress -Source $ModulePath -Destination $StagingModuleDestPath -ExcludeType Directories -Exclude 'nuget' -ProgressDisplayName ('Copying {0} ({1}) Modules Files...' -f $ModuleName,$strLatestVersion)
 
     #set the location of the destination folder to install it
