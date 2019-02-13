@@ -14,7 +14,7 @@
     powershell.exe -ExecutionPolicy Bypass -file "Install-PowerCLI.ps1" -CreateShortcut
 .NOTES
     Script name: Install-PowerCLI.ps1
-    Version:     3.1.0004
+    Version:     3.1.0020
     Author:      Richard Tracy
     DateCreated: 2018-04-02
     LastUpdate:  2019-02-13
@@ -109,6 +109,7 @@ Function Write-LogEntry {
     }
 }
 
+
 function Test-IsISE {
 # try...catch accounts for:
 # Set-StrictMode -Version latest
@@ -120,96 +121,56 @@ function Test-IsISE {
     }
 }
 
-
-function Copy-WithProgress {
+Function Copy-ItemWithProgress
+{
     [CmdletBinding()]
-    param (
-        [Parameter(Mandatory = $true)]
-        [string] $Source,
-        [Parameter(Mandatory = $true)]
-        [string] $Destination,
-        [int] $Gap = 0,
-        [int] $ReportGap = 200,
-        [ValidateSet("Directories","Files")]
-        [string] $ExcludeType,
-        [string] $Exclude,
-        [string] $ProgressDisplayName
+    Param
+    (
+    [Parameter(Mandatory=$true,
+        ValueFromPipelineByPropertyName=$true,
+        Position=0)]
+    $Source,
+    [Parameter(Mandatory=$true,
+        ValueFromPipelineByPropertyName=$true,
+        Position=0)]
+    $Destination,
+    [Parameter(Mandatory=$false,
+        ValueFromPipelineByPropertyName=$true,
+        Position=0)]
+    [switch]$Force
     )
-    # Define regular expression that will gather number of bytes copied
-    $RegexBytes = '(?<=\s+)\d+(?=\s+)';
 
-    #region Robocopy params
-    # MIR = Mirror mode
-    # NP  = Don't show progress percentage in log
-    # NC  = Don't log file classes (existing, new file, etc.)
-    # BYTES = Show file sizes in bytes
-    # NJH = Do not display robocopy job header (JH)
-    # NJS = Do not display robocopy job summary (JS)
-    # TEE = Display log in stdout AND in target log file
-    # XF file [file]... :: eXclude Files matching given names/paths/wildcards.
-    # XD dirs [dirs]... :: eXclude Directories matching given names/paths.
-    $CommonRobocopyParams = '/MIR /NP /NDL /NC /BYTES /NJH /NJS';
+    $Source = $Source
     
-    switch ($ExcludeType){
-        Files { $CommonRobocopyParams += ' /XF {0}' -f $Exclude };
-	    Directories { $CommonRobocopyParams += ' /XD {0}' -f $Exclude };
+    #get the entire folder structure
+    $Filelist = Get-Childitem $Source –Recurse
+
+    #get the count of all the objects
+    $Total = $Filelist.count
+
+    #establish a counter
+    $Position = 0
+
+    #Stepping through the list of files is quite simple in PowerShell by using a For loop
+    foreach ($File in $Filelist)
+
+    {
+        #On each file, grab only the part that does not include the original source folder using replace
+        $Filename = ($File.Fullname).replace($Source,'')
+        
+        #rebuild the path for the destination:
+        $DestinationFile = ($Destination+$Filename)
+        
+        #show progress
+        Write-Progress -Activity "Copying data from $source to $Destination" -Status "Copying File $Filename" -PercentComplete (($Position/$total)*100)
+        
+        #do copy (enforce
+        Copy-Item $File.FullName -Destination $DestinationFile -Force:$Force -ErrorAction SilentlyContinue | Out-Null
+
+        #bump up the counter
+        $Position++
     }
-    
-    #endregion Robocopy params
-    
-    #generate log format
-    $TimeGenerated = "$(Get-Date -Format HH:mm:ss).$((Get-Date).Millisecond)+000"
-    $Line = '<![LOG[{0}]LOG]!><time="{1}" date="{2}" component="{3}" context="" type="{4}" thread="" file="">'
 
-    #region Robocopy Staging
-    Write-Verbose -Message 'Analyzing robocopy job ...';
-    $StagingLogPath = '{0}\offlinemodules-staging-{1}.log' -f $env:temp, (Get-Date -Format 'yyyy-MM-dd hh-mm-ss');
-
-    $StagingArgumentList = '"{0}" "{1}" /LOG:"{2}" /L {3}' -f $Source, $Destination, $StagingLogPath, $CommonRobocopyParams;
-    Write-Verbose -Message ('Staging arguments: {0}' -f $StagingArgumentList);
-    Start-Process -Wait -FilePath robocopy.exe -ArgumentList $StagingArgumentList -WindowStyle Hidden;
-    # Get the total number of files that will be copied
-    $StagingContent = Get-Content -Path $StagingLogPath;
-    $TotalFileCount = $StagingContent.Count - 1;
-
-    # Get the total number of bytes to be copied
-    [RegEx]::Matches(($StagingContent -join "`n"), $RegexBytes) | % { $BytesTotal = 0; } { $BytesTotal += $_.Value; };
-    Write-Verbose -Message ('Total bytes to be copied: {0}' -f $BytesTotal);
-    #endregion Robocopy Staging
-
-    #region Start Robocopy
-    # Begin the robocopy process
-    $RobocopyLogPath = '{0}\offlinemodules-{1}.log' -f $env:temp, (Get-Date -Format 'yyyy-MM-dd hh-mm-ss');
-    $ArgumentList = '"{0}" "{1}" /LOG:"{2}" /ipg:{3} {4}' -f $Source, $Destination, $RobocopyLogPath, $Gap, $CommonRobocopyParams;
-    Write-Verbose -Message ('Beginning the robocopy process with arguments: {0}' -f $ArgumentList);
-    $Robocopy = Start-Process -FilePath robocopy.exe -ArgumentList $ArgumentList -Verbose -PassThru -WindowStyle Hidden;
-    Start-Sleep -Milliseconds 100;
-    #endregion Start Robocopy
-
-    #region Progress bar loop
-    while (!$Robocopy.HasExited) {
-        Start-Sleep -Milliseconds $ReportGap;
-        $BytesCopied = 0;
-        $LogContent = Get-Content -Path $RobocopyLogPath;
-        $BytesCopied = [Regex]::Matches($LogContent, $RegexBytes) | ForEach-Object -Process { $BytesCopied += $_.Value; } -End { $BytesCopied; };
-        $CopiedFileCount = $LogContent.Count - 1;
-        Write-Verbose -Message ('Bytes copied: {0}' -f $BytesCopied);
-        Write-Verbose -Message ('Files copied: {0}' -f $LogContent.Count);
-        $Percentage = 0;
-        if ($BytesCopied -gt 0) {
-           $Percentage = (($BytesCopied/$BytesTotal)*100)
-        }
-        If ($ProgressDisplayName){$ActivityDisplayName = $ProgressDisplayName}Else{$ActivityDisplayName = 'Robocopy'}
-        Write-Progress -Activity $ActivityDisplayName -Status ("Copied {0} of {1} files; Copied {2} of {3} bytes" -f $CopiedFileCount, $TotalFileCount, $BytesCopied, $BytesTotal) -PercentComplete $Percentage
-    }
-    #endregion Progress loop
-
-    #region Function output
-    [PSCustomObject]@{
-        BytesCopied = $BytesCopied;
-        FilesCopied = $CopiedFileCount;
-    };
-    #endregion Function output
 }
 
 ##*===========================================================================
@@ -238,7 +199,7 @@ Catch
 }
 
 If(!$LogPath){$LogPath = $env:TEMP}
-[string]$FileName = $scriptRoot +'.log'
+[string]$FileName = $scriptName +'.log'
 $Global:LogFilePath = Join-Path $LogPath -ChildPath $FileName
 Write-Host "Using log file: $LogFilePath"
 
@@ -315,29 +276,35 @@ Foreach($Module in $ModuleSetSourcePath){
 
 #if a module name was found continue
 If($ModuleName){
-    Write-LogEntry ("Found lastest [{0}] module in folder [{1}] with version: {2}" -f $ModuleName,$ModulePath,$strLatestVersion) -Outhost
+    Write-LogEntry ("Downloaded module found [{0}] (version:{2}). Located in folder [{1}]" -f $ModuleName,$ModulePath,$strLatestVersion) -Outhost
 
     #Get destination path based on skopepath
     switch($ScopePath){
-        "AllUsers"    { $ModuleDestPath = Join-path $AllUsersModulePath -ChildPath $ModuleName
-                        $ScriptsDestPath = Join-path $AllUsersScriptsPath -ChildPath $ModuleName
+        "AllUsers"    { #$ModuleDestPath = Join-path $AllUsersModulePath -ChildPath $ModuleName
+                        $ModuleDestPath = $AllUsersModulePath
+                        #$ScriptsDestPath = Join-path $AllUsersScriptsPath -ChildPath $ModuleName
+                        $ScriptsDestPath = $AllUsersScriptsPath
                       } 
 
-        "CurrentUser" { $ModuleDestPath = Join-path $UserModulePath -ChildPath $ModuleName
-                        $ScriptsDestPath = Join-path $UserScriptPath -ChildPath $ModuleName
+        "CurrentUser" { #$ModuleDestPath = Join-path $UserModulePath -ChildPath $ModuleName
+                        $ScriptsDestPath = $UserModulePath
+                        #$ModuleDestPath = Join-path $UserModulePath -ChildPath $ModuleName
+                        $ScriptsDestPath = $UserScriptPath
                       }
 
     }
 }
 Else{
-    Write-LogEntry ("module name [{0}] does not match VMware.PowerCLI" -f $Module) -Severity 2 -Outhost
+    Write-LogEntry ("Found module [{0}]. The module does not match [VMware.PowerCLI]. Exiting..." -f $Module) -Severity 2 -Outhost
     Exit
 }
 ##*===============================================
 ##* Detect Section
 ##*===============================================
 #detect if Powercli is already installed
-$FoundModule = Get-Module VMware.PowerCLI* -ListAvailable
+$FoundModule = Get-Module VMware* -ListAvailable
+$FoundManifestModule = $FoundModule | Where {$_.ModuleType -eq "Manifest"}
+$strFoundLatestVersion = [string]$FoundManifestModule.Version
 
 If ($FoundModule){
 
@@ -346,11 +313,12 @@ If ($FoundModule){
         
         #If forced, set trigger uninstall switch
         If($ForceInstall){
-            Write-LogEntry ("An already installed [{0}] module version is equal to or greater than: {1}, Force switch is ignoring version..." -f $ModuleName,$strLatestVersion) -Outhost
+            Write-LogEntry ("[{0}] module is already installed. The version is equal to or greater than: {1} but the force switch is set to ignore..." -f $ModuleName,$strFoundLatestVersion) -Outhost
             $UninstallModule = $true
+            $InstallModule = $true
         }
         Else{
-            Write-LogEntry ("An already installed [{0}] module version is equal to or greater than: {1}" -f $ModuleName,$strLatestVersion) -Outhost
+            Write-LogEntry ("[{0}] module is already installed. The version is equal to or greater than: {1}" -f $ModuleName,$strFoundLatestVersion) -Outhost
         }
     }
     Else{
@@ -359,7 +327,7 @@ If ($FoundModule){
     }
 }
 Else{
-    Write-LogEntry ("[{0}] module is not installed. Preparing to install..." -f $ModuleName) -Outhost
+    Write-LogEntry ("[{0}] module is not found or installed" -f $ModuleName) -Outhost
     $InstallModule = $true
 }
 
@@ -372,28 +340,30 @@ If($UninstallModule){
     $Dependencies = New-Object System.Collections.Generic.List[System.Object]
 
     # Grab root modules dependencies
-    $Manifest = Test-ModuleManifest $InstalledPowerCLI.RootModule -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    $Manifest = Test-ModuleManifest $FoundManifestModule.RootModule -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
     $DependencyModules = $Manifest.RequiredModules
     
     #uninstall and remove each dependency
     Foreach ($Module in $DependencyModules){
         Try{
-            Write-LogEntry ("Uninstalling module: {0} ({1})..." -f $Module.Name,$Module.Version) -Outhost
-            Uninstall-Module -Name $Module.Name -MinimumVersion $Module.Version -Force -ErrorAction Stop | Remove-Module -Force
+            Write-LogEntry ("Uninstalling module [{0} ({1})]..." -f $Module.Name,$Module.Version) -Outhost
+            Get-Module $Module.Name | Remove-Module -Force
         }
         Catch{
-            Write-LogEntry ("Failed to uninstall module: {0} ({1})" -f $Module.Name,$Module.Version) -Severity 3 -Outhost
-            break 
+            $ErrorMessage = $_.Exception.Message
+            Write-LogEntry ("Failed to uninstall module [{0} ({1})]: {2}" -f $Module.Name,$Module.Version,$ErrorMessage) -Severity 3 -Outhost
+            Break
         }
     }
 
     #uninstall and remove Main Module
     Try{
-        Write-LogEntry ("Uninstalling module: {0} ({1})..." -f $FoundModule.Name,$FoundModule.Version) -Outhost
-        Uninstall-Module -Name $FoundModule.Name -MinimumVersion $FoundModule.Version -Force -ErrorAction Stop | Remove-Module -Force
+        Write-LogEntry ("Uninstalling module [{0} ({1})]..." -f $FoundModule.Name,$FoundModule.Version) -Outhost
+        Get-Module $FoundManifestModule.Name | Remove-Module -Force
     }
-    Catch{
-        Write-LogEntry ("Failed to uninstall module: {0} ({1})" -f $FoundModule.Name,$FoundModule.Version) -Severity 3 -Outhost
+    Catch {
+        $ErrorMessage = $_.Exception.Message
+        Write-LogEntry ("Failed to uninstall module [{0} ({1})]: {2}" -f $FoundModule.Name,$FoundModule.Version,$ErrorMessage) -Severity 3 -Outhost
         break 
     }
 }
@@ -403,32 +373,29 @@ If($UninstallModule){
 ##*===============================================
 #install new module if force or not installed already
 If($ForceInstall -or $InstallModule){
-    #copy Module to the STAGING folder
-    $StagingModuleDestPath = ($ModuleDestPath + '-stage')
     #must be copied to one of PowerShell module folders
-    Write-LogEntry ("Staging VMWare PowerCLI ({0}) to [{1}]" -f $strLatestVersion,$StagingModuleDestPath) -Severity 1 -Outhost
-    Copy-WithProgress -Source $ModulePath -Destination $StagingModuleDestPath -ExcludeType Directories -Exclude 'nuget' -ProgressDisplayName ('Copying {0} ({1}) Modules Files...' -f $ModuleName,$strLatestVersion)
+    Write-LogEntry ("Copying VMWare PowerCLI ({0}) to [{1}]" -f $strLatestVersion,$ModuleDestPath) -Severity 1 -Outhost
+    Copy-ItemWithProgress -Source $ModulePath -Destination $ModuleDestPath -Force
 
     #set the location of the destination folder to install it
-    Set-Location -Path $StagingModuleDestPath
+    Set-Location -Path $ModuleDestPath | Out-Null
 
     #install the modules
     #this will copy it to the root module folder with versions folders for each dependency
     Try{
-        Write-LogEntry ("Installing VMWare PowerCLI ({0}) to [{1}]" -f $strLatestVersion,$ModuleDestPath) -Severity 1 -Outhost
-        Install-Module $ModuleName -Scope $ScopePath -AllowClobber -Force -Confirm:$False | Out-Null
+        Write-LogEntry ("Installing VMWare.PowerCLI ({0}) to [{1}]" -f $strLatestVersion,$ModuleDestPath) -Severity 1 -Outhost
+        Get-Module VMware.PowerCLI* -ListAvailable -Refresh | Import-Module
+        #Install-Module $ModuleName -Scope $ScopePath -AllowClobber -Force -Confirm:$False -ErrorAction Stop -ErrorVariable err | Out-Null
     }
-    Catch{
-        Write-LogEntry ("Failed to Install VMWare PowerCLI Module ({0})..." -f $strLatestVersion) -Severity 3 -Outhost
+    Catch {
+        $ErrorMessage = $_.Exception.Message
+        Write-LogEntry ("Failed to Install VMWare.PowerCLI Module ({0}): {1}" -f $strLatestVersion,$ErrorMessage) -Severity 3 -Outhost
         Exit -1 
 
     }
 
     #Change location so it not in use
     Set-Location -Path $originalLocation
-
-    #delete original staging folder
-    Remove-Item $StagingModuleDestPath -Recurse -Force | Out-Null
 }
 
 ##*===============================================
@@ -450,8 +417,4 @@ If($CreateShortcut){
         Copy-Item -Path "$PSScriptsPath\$ModuleFolder\VMware PowerCLI (32-Bit).lnk" -Destination "$env:PUBLIC\Desktop" -ErrorAction SilentlyContinue | Out-Null
         Copy-Item -Path "$PSScriptsPath\$ModuleFolder\VMware PowerCLI.lnk" -Destination "$env:PUBLIC\Desktop" -ErrorAction SilentlyContinue | Out-Null
     }
-    Exit
-}
-Else{
-    Import-Module $ModuleName
 }
