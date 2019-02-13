@@ -17,11 +17,6 @@ Include a progress bar for coping</li>
 <li>If switched, Create PowerCLI desktop shortcuts, x86 and x64 (like the installer did, pointing to Initialize-PowerCLIEnvironment.ps1  and using the icon)</li>
 <li>Load PowerCLI when done. </li>
 
-<hr>
-<b>FILE:</b> Initialize-PowerCLIEnvironment.ps1<br />
-<b>DESCRIPTION:</b>Modified version of VMWare's ps1 file that comes with 6.5.0 installer to be used with 6.5.2. 
-This script is called by the desktop shortcuts to load the PowerCLI modules appropiately
-
 ## How to use:
  1. Clone or downlaod a copy of this project
  2. On an internet connected device:
@@ -29,4 +24,5 @@ This script is called by the desktop shortcuts to load the PowerCLI modules appr
      or Save-Module VMware.PowerCli -Path <location of this module folder>
  2. Copy entire PowerCLI-ModuleInstaller to disconnected system
  3. Run: 
-        Install-PowerCLI.ps1 -SkopePath CurrentUser -CreateShortcut
+ 
+        powershell.exe -ExecutionPolicy Bypass -file "Install-PowerCLI.ps1" -CreateShortcut
