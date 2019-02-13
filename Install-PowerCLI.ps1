@@ -29,7 +29,7 @@ Param (
     [Parameter(Mandatory=$false,Position=1,HelpMessage='Where to load the modules. AllUsers = Default: Copy module to Program Files Directory; 
                                                                                    CurrentUser = Copy module to user Documents\WindowsPowerShell Folder')]
 	[ValidateSet("CurrentUser","AllUsers")]
-    [string]$SkopePath = 'AllUsers',
+    [string]$ScopePath = 'AllUsers',
     [Parameter(Mandatory=$false)]
     [switch]$CreateShortcut,
         [Parameter(Mandatory=$false,Position=1,HelpMessage='Force modules to re-import and install')]
@@ -318,7 +318,7 @@ If($ModuleName){
     Write-LogEntry ("Found lastest [{0}] module in folder [{1}] with version: {2}" -f $ModuleName,$ModulePath,$strLatestVersion) -Outhost
 
     #Get destination path based on skopepath
-    switch($SkopePath){
+    switch($ScopePath){
         "AllUsers"    { $ModuleDestPath = Join-path $AllUsersModulePath -ChildPath $ModuleName
                         $ScriptsDestPath = Join-path $AllUsersScriptsPath -ChildPath $ModuleName
                       } 
@@ -416,7 +416,7 @@ If($ForceInstall -or $InstallModule){
     #this will copy it to the root module folder with versions folders for each dependency
     Try{
         Write-LogEntry ("Installing VMWare PowerCLI ({0}) to [{1}]" -f $strLatestVersion,$ModuleDestPath) -Severity 1 -Outhost
-        Install-Module $ModuleName -Scope $SkopePath -AllowClobber -Force -Confirm:$False | Out-Null
+        Install-Module $ModuleName -Scope $ScopePath -AllowClobber -Force -Confirm:$False | Out-Null
     }
     Catch{
         Write-LogEntry ("Failed to Install VMWare PowerCLI Module ({0})..." -f $strLatestVersion) -Severity 3 -Outhost
