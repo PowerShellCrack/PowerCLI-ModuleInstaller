@@ -22,7 +22,7 @@ Include a progress bar for coping</li>
  2. On an internet connected device:<br />
     run: 
              
-        powershell.exe -ExecutionPolicy Bypass -file "Install-PowerCLI.ps1"
+        powershell.exe -ExecutionPolicy Bypass -file "Get-PowerCLI.ps1"
               
     MANUALLY: <br />      
      Go to https://code.vmware.com/web/dp/tool/vmware-powercli --> Download the "VMware-PowerCLI-<version>.zip" and extract it to this modules location<br />
