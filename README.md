@@ -1,7 +1,7 @@
 # PowerCLI Installer v2 (aka v3)
 *** Installing PowerCLl Offline **
 
-##FILE: Install-PowerCLI.ps1
+## FILE: Install-PowerCLI.ps1
 <b>URL:</b> http://www.powershellcrack.com/2017/09/installing-powercli-on-disconnected.html<br />
 <b>DESCRIPTION:</b>Install an Offline copy of PowerCLI from https://www.powershellgallery.com/packages/VMware.PowerCLI
 loading all dependencies in the appropiate order. Also installs the nuget assemby
@@ -22,3 +22,11 @@ Include a progress bar for coping</li>
 <b>DESCRIPTION:</b>Modified version of VMWare's ps1 file that comes with 6.5.0 installer to be used with 6.5.2. 
 This script is called by the desktop shortcuts to load the PowerCLI modules appropiately
 
+## How to use:
+ 1. Clone or downlaod a copy of this project
+ 2. On an internet connected device:
+     Go to https://code.vmware.com/web/dp/tool/vmware-powercli --> Download the "VMware-PowerCLI-<version>.zip" and extract it to this modules location
+     or Save-Module VMware.PowerCli -Path <location of this module folder>
+ 2. Copy entire PowerCLI-ModuleInstaller to disconnected system
+ 3. Run: 
+        Install-PowerCLI.ps1 -SkopePath CurrentUser -CreateShortcut
