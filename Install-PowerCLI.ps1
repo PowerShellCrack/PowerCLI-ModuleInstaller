@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Install PowerCLI Offline
 .DESCRIPTION
@@ -14,7 +14,7 @@
     powershell.exe -ExecutionPolicy Bypass -file "Install-PowerCLI.ps1" -CreateShortcut
 .NOTES
     Script name: Install-PowerCLI.ps1
-    Version:     3.0
+    Version:     3.1.0001
     Author:      Richard Tracy
     DateCreated: 2018-04-02
     LastUpdate:  2019-02-12
