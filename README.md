@@ -7,6 +7,7 @@
 loading all dependencies in the appropiate order. Also installs the nuget assemby
 
 <b>FEATURES:</b>
+<li>Added Get Powerhshell script (this will get nuget and Powercli)</li>
 <li>Delete any prior PowerCLI's installed</li>
 <li>Find the latest downloaded PowerCLI version folder, and copy the files to the users profile Powershell directory
 Include a progress bar for coping</li>
