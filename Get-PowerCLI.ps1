@@ -14,6 +14,12 @@
 .PARAMETER Refresh
     Re-Download modules if exist
 .NOTES
+    Script name: Install-PowerCLI.ps1
+    Version:     3.1.0020
+    Author:      Richard Tracy
+    DateCreated: 2018-04-02
+    LastUpdate:  2019-02-13
+.LINKS
     https://docs.microsoft.com/en-us/powershell/gallery/psget/repository/bootstrapping_nuget_proivder_and_exe
 #>
 [CmdletBinding()]
@@ -21,19 +27,34 @@ Param (
     [Parameter(Mandatory=$false,Position=1,HelpMessage='Remove older modules if found')]
 	[switch]$RemoveOld = $true,
     [Parameter(Mandatory=$false,Position=1,HelpMessage='Install modules on online system as well')]
-	[switch]$Install = $true,
+	[switch]$Install = $false,
     [Parameter(Mandatory=$false,Position=1,HelpMessage='Force modules to re-import and install')]
 	[switch]$ForceInstall = $false,
     [Parameter(Mandatory=$false,Position=1,HelpMessage='Re-Download modules if exist')]
 	[switch]$Refresh = $false
 )
+
+##*===========================================================================
+##* FUNCTIONS
+##*===========================================================================
+function Test-IsISE {
+# try...catch accounts for:
+# Set-StrictMode -Version latest
+    try {    
+        return $psISE -ne $null;
+    }
+    catch {
+        return $false;
+    }
+}
+
 ##*===============================================
 ##* VARIABLE DECLARATION
 ##*===============================================
 ## Variables: Script Name and Script Paths
 [string]$scriptPath = $MyInvocation.MyCommand.Definition
 #Since running script within Powershell ISE doesn't have a $scriptpath...hardcode it
-If(Test-IsISE){$scriptPath = "C:\GitHub\PowerCLI-ModuleInstaller\Get-PowerCli.ps1"}
+If(Test-IsISE){$scriptPath = "D:\Development\GitHub\PowerCLI-ModuleInstaller\Get-PowerCLI.ps1"}
 [string]$scriptName = [IO.Path]::GetFileNameWithoutExtension($scriptPath)
 [string]$scriptFileName = Split-Path -Path $scriptPath -Leaf
 [string]$scriptRoot = Split-Path -Path $scriptPath -Parent
@@ -41,37 +62,34 @@ If(Test-IsISE){$scriptPath = "C:\GitHub\PowerCLI-ModuleInstaller\Get-PowerCli.ps
 
 #Get required folder and File paths
 [string]$ModulesPath = Join-Path -Path $scriptRoot -ChildPath 'Modules'
-[string]$BinPath = Join-Path -Path $scriptDirectory -ChildPath 'Bin'
+[string]$BinPath = Join-Path -Path $scriptRoot -ChildPath 'Bin'
 
 $OnlineModules = "VMware.PowerCLI"
 
-##*===============================================
-##*==========================================================================
-##* FUNCTION
-##*==========================================================================
-Function Output-Prefix{
-    [string]$timezone = [Regex]::Replace([System.TimeZoneInfo]::Local.StandardName, '([A-Z])\w+\s*', '$1')
-    [string]$date = Get-Date -Format ("ddd MMM dd hh:mm:ss {0} yyyy" -f $timezone) 
-    return $date
-}
-$Prefix = Output-Prefix
 
+##*===============================================
+##* Nuget Section
+##*===============================================
 #See if system is conencted to the internet
-$internetConnected = Test-NetConnection www.powershellgallery.com -CommonTCPPort HTTP -InformationLevel Quiet -WarningAction SilentlyContinue
+$internetConnected = Test-NetConnection www.powershellgallery.com -CommonTCPPort HTTP -InformationLevel Quiet -WarningAction SilentlyContinue | Out-NUll
 
 If($internetConnected)
 {
-    $Nuget = Install-PackageProvider Nuget –force –verbose
+    $Nuget = Install-Package Nuget –force
     $NuGetAssemblyVersion = $($Nuget).version
-    Write-Host "INSTALLED: Nuget [$NuGetAssemblyVersion] was installed" -ForegroundColor Green
-    #Copy Nuget prereqs
-    $NuGetAssemblyDestPath = Get-ChildItem "$BinPath\nuget" -Filter *.dll -Recurse
-    $NuGetAssemblySourcePath = "$env:ProgramFiles\PackageManagement\ProviderAssemblies\nuget"
-    If ($NuGetAssemblyDestPath.FullName)
+    Write-Host "INSTALLED: Nuget [$NuGetAssemblyVersion] is installed" -ForegroundColor Green
+    #get path to nuget
+    $NuGetAssemblySourcePath = Get-ChildItem "$env:ProgramFiles\PackageManagement\ProviderAssemblies\nuget" -Filter *.dll -Recurse
+    #build destingation path for backup
+    $NuGetAssemblyDestPath = "$BinPath\nuget\$NuGetAssemblyVersion"
+    #test to see if same version exist in copied location
+    $NuGetAssemblyCopiedPath = Get-ChildItem $NuGetAssemblyDestPath -Filter *.dll -Recurse -ErrorAction SilentlyContinue
+    
+    If ($NuGetAssemblyCopiedPath)
     {
         If($Refresh){
             Write-Host "BACKUP: Copying nuget Assembly [$NuGetAssemblyVersion] from $NuGetAssemblySourcePath" -ForegroundColor Gray
-            Copy-Item "$NuGetAssemblySourcePath\$NuGetAssemblyVersion\Microsoft.PackageManagement.NuGetProvider.dll" $NuGetAssemblyDestPath.FullName -Force -ErrorAction SilentlyContinue
+            Copy-Item $NuGetAssemblySourcePath $NuGetAssemblyDestPath -Force -ErrorAction SilentlyContinue
         }
         Else{
             Write-Host "FOUND: Nuget [$NuGetAssemblyVersion] already copied" -ForegroundColor Green
@@ -79,8 +97,8 @@ If($internetConnected)
     }
     Else{
         Write-Host "BACKUP: Copying nuget Assembly [$NuGetAssemblyVersion] from $NuGetAssemblySourcePath" -ForegroundColor Gray
-        New-Item "$ModulesPath\nuget\$NuGetAssemblyVersion" -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
-        Copy-Item "$NuGetAssemblySourcePath\$NuGetAssemblyVersion\Microsoft.PackageManagement.NuGetProvider.dll" "$BinPath\nuget\$NuGetAssemblyVersion" -ErrorAction SilentlyContinue
+        New-Item $NuGetAssemblyDestPath -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
+        Copy-Item $NuGetAssemblySourcePath $NuGetAssemblyDestPath -Force -ErrorAction SilentlyContinue
     }
 
     #loop through each module

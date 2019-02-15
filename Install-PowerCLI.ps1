@@ -40,6 +40,18 @@ Param (
 ##*===========================================================================
 ##* FUNCTIONS
 ##*===========================================================================
+function Test-IsISE {
+# try...catch accounts for:
+# Set-StrictMode -Version latest
+    try {    
+        return $psISE -ne $null;
+    }
+    catch {
+        return $false;
+    }
+}
+
+
 Function Write-LogEntry {
     param(
         [Parameter(Mandatory=$true,Position=0,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)]
@@ -110,16 +122,7 @@ Function Write-LogEntry {
 }
 
 
-function Test-IsISE {
-# try...catch accounts for:
-# Set-StrictMode -Version latest
-    try {    
-        return $psISE -ne $null;
-    }
-    catch {
-        return $false;
-    }
-}
+
 
 Function Copy-ItemWithProgress
 {
@@ -143,7 +146,7 @@ Function Copy-ItemWithProgress
     $Source = $Source
     
     #get the entire folder structure
-    $Filelist = Get-Childitem $Source –Recurse
+    $Filelist = Get-Childitem $Source -Recurse
 
     #get the count of all the objects
     $Total = $Filelist.count
