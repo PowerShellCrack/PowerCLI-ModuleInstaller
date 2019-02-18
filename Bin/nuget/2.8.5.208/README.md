@@ -1,1 +1,0 @@
-Download Microsoft.PackageManagement.NuGetProvider.dll and place here

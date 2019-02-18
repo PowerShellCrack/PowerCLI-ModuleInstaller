@@ -1,3 +1,4 @@
 Microsoft.PackageManagement.NuGetProvider.dll
-VMware.PowerCLI-**
-VMware-PowerCLI-**
+VMware.PowerCLI**
+VMware-PowerCLI**
+/Modules/**
