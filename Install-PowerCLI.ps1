@@ -36,7 +36,6 @@ Param (
 	[switch]$ForceInstall = $false
 )
 
-
 ##*===========================================================================
 ##* FUNCTIONS
 ##*===========================================================================
@@ -71,84 +70,114 @@ Function Copy-ItemWithProgress
     [Parameter(Mandatory=$false,
         ValueFromPipelineByPropertyName=$true,
         Position=3)]
-
     [switch]$Force
     )
 
-    $Source = $Source
+    Begin{
+        $Source = $Source
     
-    #get the entire folder structure
-    $Filelist = Get-Childitem $Source -Recurse
+        #get the entire folder structure
+        $Filelist = Get-Childitem $Source -Recurse
 
-    #get the count of all the objects
-    $Total = $Filelist.count
+        #get the count of all the objects
+        $Total = $Filelist.count
 
-    #establish a counter
-    $Position = 0
+        #establish a counter
+        $Position = 0
 
-    #set an id for the progress bar
-    If($ParentID){$ParentID = $ParentID;$ThisProgressID = ($ParentID+1)}Else{$ProgressID = 1;$ThisProgressID = 1}
-
-    #Stepping through the list of files is quite simple in PowerShell by using a For loop
-    foreach ($File in $Filelist)
-
-    {
-        #On each file, grab only the part that does not include the original source folder using replace
-        $Filename = ($File.Fullname).replace($Source,'')
-        
-        #rebuild the path for the destination:
-        $DestinationFile = ($Destination+$Filename)
-        
-        #get just the folder path
-        $DestinationPath = Split-Path $DestinationFile -Parent
-
-        #show progress
-        Write-Progress -Activity "Copying data from $source to $Destination" -Status "Copying File $Filename" -PercentComplete (($Position/$total)*100) -Id $ThisProgressID -ParentId $ParentID
-        
-        #create destination directories
-        If (-not (Test-Path $DestinationPath) ) {
-            New-Item $DestinationPath -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
-        }
-
-        #do copy (enforce)
-        Copy-Item $File.FullName -Destination $DestinationFile -Force:$Force -ErrorAction SilentlyContinue | Out-Null
-
-        #bump up the counter
-        $Position++
+        #set an id for the progress bar
+        If($ParentID){$ParentID = $ParentID;$ThisProgressID = ($ParentID+1)}Else{$ProgressID = 1;$ThisProgressID = 1}
     }
+    Process{
+        #Stepping through the list of files is quite simple in PowerShell by using a For loop
+        foreach ($File in $Filelist)
 
+        {
+            #On each file, grab only the part that does not include the original source folder using replace
+            $Filename = ($File.Fullname).replace($Source,'')
+        
+            #rebuild the path for the destination:
+            $DestinationFile = ($Destination+$Filename)
+        
+            #get just the folder path
+            $DestinationPath = Split-Path $DestinationFile -Parent
+
+            #show progress
+            Write-Progress -Activity "Copying data from $source to $Destination" -Status "Copying File $Filename" -PercentComplete (($Position/$total)*100) -Id $ThisProgressID -ParentId $ParentID
+        
+            #create destination directories
+            If (-not (Test-Path $DestinationPath) ) {
+                New-Item $DestinationPath -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
+            }
+
+            #do copy (enforce)
+            Try{
+                Copy-Item $File.FullName -Destination $DestinationFile -Force:$Force -ErrorAction:$VerbosePreference -Verbose:($PSBoundParameters['Verbose'] -eq $true) | Out-Null
+                Write-Verbose ("Copied file [{0}] to [{1}]" -f $File.FullName,$DestinationFile)
+            }
+            Catch{
+                Write-Host ("Unable to copy file in {0} to {1}; Error: {2}" -f $File.FullName,$DestinationFile ,$_.Exception.Message) -ForegroundColor Red
+                break
+            }
+            #bump up the counter
+            $Position++
+        }
+    }
+    End{}
 }
 
+
 Function Inventory-ModuleStructure{
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParametersetName="none")] 
     Param
     (
-    [Parameter(Mandatory=$true,ValueFromPipeline=$true)] 
-        [ValidateScript({Test-Path $_ -PathType 'Container'})] 
+    [Parameter(Position=0,Mandatory=$true,ValueFromPipeline=$true)]
+    [ValidateScript({Test-Path $_ -PathType 'Container'})] 
     [String]$ModulePath,
+    
+    [Parameter(ParameterSetName="Validate",Mandatory=$false)]
+    [switch]$Validate,
 
-    [Parameter(Mandatory=$true)]
+    [Parameter(ParameterSetName="Validate",Mandatory=$false)]
+    [switch]$ReturnVersion,
+
+    [Parameter(ParameterSetName="Fix",Mandatory=$true)]
+    [switch]$Fix,
+
+    [Parameter(ParameterSetName="Fix",Mandatory=$false)]
     [ValidateScript({Test-Path $_ -PathType 'Container'})]
     [String]$DestRootPath,
 
-    [switch]$Fix
+    [Parameter(ParameterSetName="Fix",Mandatory=$false)]
+    [switch]$Overwrite
+
     )
     Begin{
-        $moduleCollection = @()
+        $ParamSetName = $PsCmdLet.ParameterSetName
+        Write-verbose ('Set name is: {0}' -f $ParamSetName)
         
-        $rootFolders = Get-ChildItem $ModulePath | where {$_.Psiscontainer -eq $true}
+        #grab base directory for use later
+        $BasePath = Split-Path $ModulePath -Parent
+
+        $rootFolders = Get-ChildItem $ModulePath | where {$_.PSisContainer -eq $true}
+
 
         #get the count of all the objects
         $Total = $rootFolders.count
 
         #establish a counter
         $Position = 0
+
+        $moduleCollection = @()
     }
     Process{
-        #first get the mainmodule manifest
+        
+        #first get the main module manifest
+        #grab psd1 module file in the module folder (ignore others that may exist in sub folders)
+        #look to see if RootModule is not specified in the psd1 (these are considered manifest modules)
         Foreach ($folder in $rootFolders) {
-            $Psd1 = Get-ChildItem $folder.FullName -Filter *.psd1
-            $Psd1Folder = Split-Path $Psd1.FullName -Parent
+            $Psd1 = Get-ChildItem $folder.FullName -Filter *.psd1 -Recurse | Select -First 1
+            $Psd1Folder = Split-Path $Psd1.FullName -Parent 
             $Manifest = Test-ModuleManifest $Psd1.FullName -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
             Write-Verbose ("`$folder = {0}" -f $folder.FullName)
             If(-not($Manifest.RootModule)){   
@@ -160,7 +189,7 @@ Function Inventory-ModuleStructure{
                 Write-Verbose ("`$MainModuleFolder = {0}" -f $MainModuleFolder)
                 Write-Verbose ("`$MainModuleName = {0}" -f $MainModuleName)
                 Write-Verbose ("`$MainModuleVersion = {0}" -f $MainModuleVersion)
-                Continue
+                break
             }
             
         }
@@ -168,16 +197,23 @@ Function Inventory-ModuleStructure{
 
         #Now process all folders again and grab everything
         Foreach ($folder in $rootFolders) {
-            Write-Verbose ("============================")
-            
+            Write-Verbose ("============================")      
             Write-Verbose ("`$folder = {0}" -f $folder.FullName)
 
-            #grab psd1 module file
-            $Psd1 = Get-ChildItem $folder.FullName -Filter *.psd1
+            #grab psd1 module file in the module folder (ignore others that may exist in sub folders)
+            $Psd1 = Get-ChildItem $folder.FullName -Filter *.psd1 -Recurse | Select -First 1
             Write-Verbose ("`$Psd1 = {0}" -f $Psd1)
 
             $Psd1Folder = Split-Path $Psd1.FullName -Parent
             Write-Verbose ("`$Psd1Folder = {0}" -f $Psd1Folder)
+
+            #this will grab just the root path of the module
+            $RootPath = Split-Path $folder.FullName -Parent
+            Write-Verbose ("`$RootPath  = {0}" -f $RootPath)
+
+            #get the modules folder structure by removing the root module path
+            $CurrentFolder = $Psd1Folder.replace($BasePath + "\","")
+            Write-Verbose ("`$CurrentFolder = {0}" -f $CurrentFolder)
 
             #parse the manifest file for proper name and version
             $Manifest = Test-ModuleManifest $Psd1.FullName -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
@@ -192,16 +228,16 @@ Function Inventory-ModuleStructure{
 
             If($Psd1Folder -eq $MainModuleFolder){$ModuleType = 'Manifest'}Else{$ModuleType = 'Script'}
 
-            #build objects
+            #build module object
             $ModuleFileObject = New-Object PSObject -Property @{
-                CurrentFolder = $folder.FullName
-                VersionFolder = $Manifest.Version
+                CurrentFolder = $CurrentFolder
                 NewFolder = $NewFolder
-                File = $Psd1.name
-                RootModule = $MainModuleName
-                Module = $Manifest.Name
-                RootModuleVersion = $MainModuleVersion
+                Manifest = $Psd1.name
+                Module = $Manifest.RootModule
+                Version = $Manifest.Version
                 ModuleType = $ModuleType 
+                RootModule = $MainModuleName
+                RootModuleVersion = $MainModuleVersion
             }
 
             #collect objects
@@ -209,19 +245,22 @@ Function Inventory-ModuleStructure{
         }
     }
     End{
-        If($Fix){
+        If($ParamSetName -eq "Fix"){
             Foreach ($moduleItem in $moduleCollection) {
                 Write-Progress -Activity ("Copying files for module [{0}]" -f $moduleItem.Module) -Status ("Copying contents in folder [{0}]" -f $moduleItem.CurrentFolder) -PercentComplete (($Position/$total)*100) -ParentId 1
 
+                #if destination path is not specified, then use source module path
+                If(!$DestRootPath){$DestRootPath = Split-Path $ModulePath -Parent}
+
                 #source folder
-                $SourcePath = $moduleItem.CurrentFolder
+                $SourcePath = $BasePath + "\" + $moduleItem.CurrentFolder
                 
                 #include a root path with the new folder
                 $DestPath = $DestRootPath + "\" + $moduleItem.NewFolder
                  
                 Try{
-                    Copy-ItemWithProgress $SourcePath $DestPath -ParentID 1 -Force
-                    write-host ("Copied files in [{0}] to [{1}]" -f $SourcePath,$DestPath) -ForegroundColor Gray
+                    Copy-ItemWithProgress $SourcePath $DestPath -ParentID 1 -Force:$Overwrite -Verbose:($PSBoundParameters['Verbose'] -eq $true)
+                    Write-Verbose ("Copied files in [{0}] to [{1}]" -f $SourcePath,$DestPath)
                     $FixedDir = $true
                 }
                 Catch{
@@ -235,7 +274,26 @@ Function Inventory-ModuleStructure{
             }
         }
 
-        If($FixedDir){
+        #if fix not specified or comes back with errors
+        If($ParamSetName -eq "Validate"){
+            $modulevalidated=$true
+            #compare the current folder with new folder on each module
+            #if they are the same the module has a valid structure
+            #if not, either use the fix switch or re-download
+            Foreach ($moduleItem in $moduleCollection) {
+                If($moduleItem.CurrentFolder -ne $moduleItem.NewFolder){
+                    $modulevalidated=$false
+                } 
+            }
+            If($ReturnVersion){
+                return $MainModuleVersion
+            }
+            Else{
+                return $modulevalidated 
+            }
+             
+        }
+        ElseIf($FixedDir){
             $FixFolder = ($DestRootPath + "\" + $MainModuleName + "-" + $MainModuleVersion)
             return $FixFolder
         }
@@ -316,6 +374,8 @@ Function Write-LogEntry {
         }
     }
 }
+
+
 
 ##*===========================================================================
 ##* VARIABLES

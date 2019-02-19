@@ -140,6 +140,9 @@ Function Inventory-ModuleStructure{
     [Parameter(ParameterSetName="Validate",Mandatory=$false)]
     [switch]$Validate,
 
+    [Parameter(ParameterSetName="Validate",Mandatory=$false)]
+    [switch]$ReturnVersion,
+
     [Parameter(ParameterSetName="Fix",Mandatory=$true)]
     [switch]$Fix,
 
@@ -284,7 +287,13 @@ Function Inventory-ModuleStructure{
                     $modulevalidated=$false
                 } 
             }
-            return $modulevalidated  
+            If($ReturnVersion){
+                return $MainModuleVersion
+            }
+            Else{
+                return $modulevalidated 
+            }
+             
         }
         ElseIf($FixedDir){
             $FixFolder = ($DestRootPath + "\" + $MainModuleName + "-" + $MainModuleVersion)
@@ -439,38 +448,54 @@ If($internetConnected)
             [string]$ModuleVersion = $OnlineModuleFound.Version
             
             #we want to standardized folder names for easier management
-            #$ModuleBuildFolder = ($ModuleName + "-" + $ModuleVersion)
-            $ModuleBuildFolder = "\b$ModuleName\b[^\n]+\b$ModuleVersion\b"
+            #$ModuleStandardizedFolder = ($ModuleName + "-" + $ModuleVersion)
+            $ModuleStandardizedFolder = "\b$ModuleName\b[^\n]+\b$ModuleVersion\b"
 
             #find modules with no simliarity; We can't use this; these will be removed if switched
             $NotLikeModulesExists = Get-ChildItem $ModulesPath -Directory | Where-Object {$_.Name -notmatch $ModuleName}
             
             #is there a module that has a package subfolder (from online nupkg)? We can't use this; these also will be removed if switched
             $NupkgModuleExits = Split-Path (Get-ChildItem -Path $ModulesPath -Recurse | Where-Object { $_.PSIsContainer} | Where-Object {$_.Name -eq "package"}).FullName -Parent
+            $NupkgModuleFolder = $NupkgModuleExits.replace($ModulesPath +"\","")
+
+            #find modules with simliarity but may not be named correctly and exclude nupkg; We can use this
+            $SimilarModulesExists = Get-ChildItem $ModulesPath -Directory | Where-Object {$_.Name -match $ModuleStandardizedFolder -and $_.Name -ne $NupkgModuleFolder -and $_.Name -ne $ExactModuleExists}
+
+            #determine if there are simliar modules but may not be the same version or named correctly; We might use this if parsed
+            $LikeModulesExists = Get-ChildItem $ModulesPath -Directory | Where-Object {$_.Name -match $ModuleName -and $_.Name -notmatch $ModuleStandardizedFolder}
 
             #find modules with for exact match; We will use this
-            $ExactModulesExists = Get-ChildItem $ModulesPath -Directory | Where-Object {$_.Name -eq "$ModuleName-$ModuleVersion"}
+            $ExactModuleExists = Get-ChildItem $ModulesPath -Directory | Where-Object {$_.Name -eq "$ModuleName-$ModuleVersion"}
 
             #validate the module structure
-            If($ExactModulesExists){
-                $ValidModule = Inventory-ModuleStructure -ModulePath $ExactModulesExists.FullName -Validate
+            If($ExactModuleExists){
+                $ValidModule = Inventory-ModuleStructure -ModulePath $ExactModuleExists.FullName -Validate
                 #if specified we can try to fix the module structure
                 If(!$ValidModule -and $FixInvalidModule){
-                    $FixedModule = Inventory-ModuleStructure -ModulePath $ExactModulesExists.FullName -Fix 
+                    $AvailableModule = Inventory-ModuleStructure -ModulePath $ExactModuleExists.FullName -Fix 
                 }
             }
             Else
             {
-                #find modules with simliarity but exclude nupkg; We can use this
-                $SimilarModulesExists = Get-ChildItem $ModulesPath -Directory | Where-Object {$_.Name -match $ModuleBuildFolder -and $_.FullName -ne $NupkgModuleExits -and $_.Name -ne $ExactModulesExists}
-            
-                #we don't know that the module is correctly formatted; this must be checked
-                $FoundPotentialModule = Inventory-ModuleStructure -ModulePath $SimilarModulesExists.FullName -Validate -Verbose -DestRootPath $ModulesPath
+                Foreach ($SimilarModule in $SimilarModulesExists){
+                    #we don't know that the module is correctly formatted; this must be checked
+                    $ValidateSimliarModule = Inventory-ModuleStructure -ModulePath $SimilarModule.FullName -Validate
+                    $ValidateSimliarModuleVersion = Inventory-ModuleStructure -ModulePath $SimilarModule.FullName -Validate -ReturnVersion
+                    
+                    #first detemine if the version is correct
+                    If([string]$ValidateSimliarModuleVersion -eq $ModuleVersion){
+                        #next check the structure and fix it
+                        If(!$ValidateSimliarModule){
+                            $AvailableModule = Inventory-ModuleStructure -ModulePath $SimilarModule.FullName -Fix 
+                        }   
+                    }
+                }
+            }
 
-                #After inventoring the module is it a potential match? 
+            #After inventoring the module is it a potential match? 
                 #If so fix it up for import
                 $InventoriedModule = $FoundPotentialModule | Where {$_.ModuleType -eq "Manifest"}
-                If(($InventoriedModule.RootModule + "." + $InventoriedModule.RootModuleVersion) -match $ModuleBuildFolder){
+                If(($InventoriedModule.RootModule + "." + $InventoriedModule.RootModuleVersion) -match $ModuleStandardizedFolder){
                     If($FixInvalidModule){
                         $FoundModule = Inventory-ModuleStructure -ModulePath $SimilarModulesExists.FullName -DestRootPath $ModulesPath -Fix
                     }
@@ -478,10 +503,6 @@ If($internetConnected)
                         $FoundModule = $InventoriedModule 
                     }
                 }
-            }
-
-            #determine if there are simliar modules but may not be named correctly; We might use this if parsed
-            $LikeModulesExists = Get-ChildItem $ModulesPath -Directory | Where-Object {$_.Name -match $ModuleName -and $_.Name -notmatch $ModuleBuildFolder}
             
             #double check like modules to ensure they are not just renamed wrong
             If(-not($SimilarModulesExists) -and $LikeModulesExists){
@@ -491,8 +512,6 @@ If($internetConnected)
                 }
 
             }
-
-            $SameModulesExists = Get-ChildItem $ModulesPath -Directory | Where-Object {$_.Name -match $ModuleBuildFolder -and $_.FullName -ne $NupkgModuleExits}
 
         }
 
