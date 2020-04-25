@@ -4,7 +4,6 @@ Installing PowerCLI 6.5.2<br /><br />
 Use branch v2 for later versions of PowerCLI: https://github.com/PowerShellCrack/PowerCLI-ModuleInstaller/tree/v2<br />
 
 <b>FILE:</b> Install-PowerCLI.ps1<br />
-<b>URL:</b> http://www.powershellcrack.com/2017/09/installing-powercli-on-disconnected.html<br />
 <b>DESCRIPTION:</b>Install an Offline copy of PowerCLI from https://www.powershellgallery.com/packages/VMware.PowerCLI
 loading all dependencies in the appropiate order. Also installs the nuget assemby
 
